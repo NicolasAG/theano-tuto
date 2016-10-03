@@ -187,3 +187,21 @@ f = theano.function([x, W, V], [VJ], on_unused_input='warn')  # W is not used to
 print "V * Jacobian =", f(x=[0, 1], W=[[1, 1], [1, 1]], V=[2, 2])  # [[0,0],[2,2]]
 print "- - -"
 
+
+### Hessian times Vector
+
+x = T.dvector('x')
+v = T.dvector('v')
+y = T.sum(x**2)
+
+gy = T.grad(y, x)
+
+Hv = T.Rop(gy, wrt=x, eval_points=v)
+f = theano.function([x, v], [Hv])
+print "Hessian * V =", f([4, 4], [2, 2])  # [4,4]
+
+vH = T.grad(T.sum(gy * v), wrt=x)
+f = theano.function([x, v], [vH])
+print "V * Hessian =", f([4, 4], [2, 2])  # [4,4]
+print "- - -"
+
