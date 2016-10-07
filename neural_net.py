@@ -31,12 +31,13 @@ valid_Y = one_hot(valid_Y)
 test_Y = one_hot(test_Y)
 
 
-class LogisticRegression(object):
-    def __init__(self, x_train, y_train):
+class NeuralNetwork(object):
+    def __init__(self, x_train, y_train, hidden):
         """
         Constructor.
         :x_train: training data, an m x n numpy matrix.
         :y_train: labels for the training data, matrix of size m x t.
+        :hidden:  number of hidden nodes in the hidden layer.
         """
         assert type(x_train) is np.ndarray
         assert len(x_train.shape) == 2  # make sure X_train is a 2D numpy array.
@@ -61,27 +62,58 @@ class LogisticRegression(object):
         )
         self.t = y_train.shape[1]  # number of distinct targets.
 
-        # initial weights W is an n X t matrix where each row i is
-        #  a vector of t weights for feature i, and each column j is
-        #  a vector of n weights for target j.
-        # each n*t weights are uniformly sampled such that:
-        #  -4 sqrt(6 / t+n) <= Wij < +4 sqrt(6 / t+n).
-        self.w = theano.shared(
-            name='w',
+        assert type(hidden) is int
+        self.h = hidden  # number of hidden nodes.
+
+        # initial weights W_h is an n X h matrix where each row i is
+        #  a vector of h weights for feature i, and each column j is
+        #  a vector of n weights for hidden node j.
+        # each n*h weights are uniformly sampled such that:
+        #  -4 sqrt(6 / t+n) <= Wij < +4 sqrt(6 / n+h).
+        self.w_h = theano.shared(
+            name='w_h',
             value=np.asarray(
                 np.random.uniform(
-                    low=-4 * np.sqrt(6. / (self.t + self.n)),
-                    high=4 * np.sqrt(6. / (self.t + self.n)),
-                    size=(self.n, self.t)
+                    low=-4 * np.sqrt(6. / (self.n + self.h)),
+                    high=4 * np.sqrt(6. / (self.n + self.h)),
+                    size=(self.n, self.h)
                 ),
                 dtype=theano.config.floatX
             ),
             borrow=True
         )
 
-        # b = vector of 0's for each target t
-        self.b = theano.shared(
-            name='b',
+        # initial weights W_o is an h X t matrix where each row i is
+        #  a vector of t weights for hidden node i, and each column j is
+        #  a vector of h weights for target j.
+        # each h*t weights are uniformly sampled such that:
+        #  -4 sqrt(6 / t+n) <= Wij < +4 sqrt(6 / h+t).
+        self.w_o = theano.shared(
+            name='w_o',
+            value=np.asarray(
+                np.random.uniform(
+                    low=-4 * np.sqrt(6. / (self.h + self.t)),
+                    high=4 * np.sqrt(6. / (self.h + self.t)),
+                    size=(self.h, self.t)
+                ),
+                dtype=theano.config.floatX
+            ),
+            borrow=True
+        )
+
+        # b_h = vector of 0's for each hidden node h
+        self.b_h = theano.shared(
+            name='b_h',
+            value=np.zeros(
+                shape=(self.h,),  # (h,) and not (h,1) to be flexible! can be >1 if batch-size > 1
+                dtype=theano.config.floatX
+            ),
+            borrow=True
+        )
+
+        # b_o = vector of 0's for each target t
+        self.b_o = theano.shared(
+            name='b_o',
             value=np.zeros(
                 shape=(self.t,),  # (t,) and not (t,1) to be flexible! can be >1 if batch-size > 1
                 dtype=theano.config.floatX
@@ -90,8 +122,10 @@ class LogisticRegression(object):
         )
 
         print "Initial model:"
-        print "W ="; print self.w.get_value(); print self.w.get_value().shape
-        print "b ="; print self.b.get_value(); print self.b.get_value().shape
+        print "W_h ="; print self.w_h.get_value(); print self.w_h.get_value().shape
+        print "b_h ="; print self.b_h.get_value(); print self.b_h.get_value().shape
+        print "W_t ="; print self.w_o.get_value(); print self.w_o.get_value().shape
+        print "b_t ="; print self.b_o.get_value(); print self.b_o.get_value().shape
 
     def train(self, n_epochs=100, mini_batch_size=1, learning_rate=0.1):
         """
@@ -107,15 +141,17 @@ class LogisticRegression(object):
         #  from X[index] to X[index+batch_size]
         x, y = T.matrices('x', 'y')
 
-        # Probability of being target t = sigmoid = 1 / (1 + e^{-(Wx+b)})
-        # probability_t = T.nnet.sigmoid(T.dot(x, self.w)+self.b)      # matrix of probabilities of size m*t
-        probability_t = 1. / (1. + T.exp(-T.dot(x, self.w) + self.b))  # matrix of probabilities of size m*t
+        # Hidden layer: sigmoid
+        probability_h = T.nnet.sigmoid(T.dot(x, self.w_h)+self.b_h)  # matrix of size m*h
+
+        # Output layer: softmax
+        probability_t = T.nnet.softmax(T.dot(probability_h, self.w_o)+self.b_o)  # matrix of probabilities of size m*t
 
         # compare matrix of probabilities to the true labels matrix Y of values 0 or 1
         cost = T.mean(T.nnet.categorical_crossentropy(probability_t, y))
 
-        params = [self.w, self.b]  # parameters to optimize
-        g_params = T.grad(cost=cost, wrt=params)  # gradient with respect to W and b
+        params = [self.w_h, self.b_h, self.w_o, self.b_o]  # parameters to optimize
+        g_params = T.grad(cost=cost, wrt=params)  # gradient with respect to parameters
 
         # update W and b like so: param = param - lr*gradient
         updates = []
@@ -128,8 +164,7 @@ class LogisticRegression(object):
             outputs=[cost],
             updates=updates,
             givens={x: self.x_train[index:index + mini_batch_size],
-                    y: self.y_train[index:index + mini_batch_size]
-                    }
+                    y: self.y_train[index:index + mini_batch_size]}
         )
 
         import time
@@ -140,15 +175,15 @@ class LogisticRegression(object):
             # train from 0 to number of examples (m), by skipping batch.
             for row in xrange(0, self.m, mini_batch_size):
                 current_cost = train(row)[0]
-            print "cost =", current_cost
+            print "cost:", current_cost
         end_time = time.clock()
         print "Average time per epoch = ", (end_time - start_time) / n_epochs
 
     def get_weights(self):
         """
-        return the weights [W, b].
+        return the weights [W_h, b_h, W_o, b_o].
         """
-        return [self.w, self.b]
+        return [self.w_h, self.b_h, self.w_o, self.b_o]
 
     def get_prediction_function(self):
         """
@@ -157,9 +192,10 @@ class LogisticRegression(object):
         """
         x = T.matrix('x')
 
-        # Probability of being target t = sigmoid = 1 / (1 + e^{-(Wx+b)})
-        # probability_t = T.nnet.sigmoid(T.dot(x, self.w) + self.b)      # matrix of probabilities of size m*t
-        probability_t = 1. / (1. + T.exp(-T.dot(x, self.w) + self.b))  # matrix of probabilities of size m*t
+        # Hidden layer: sigmoid
+        probability_h = T.nnet.sigmoid(T.dot(x, self.w_h) + self.b_h)  # matrix of size m*h
+        # Probability of being target t : softmax
+        probability_t = T.nnet.softmax(T.dot(probability_h, self.w_o) + self.b_o)  # matrix of probabilities of size m*t
 
         # index of max probability for each row (example) = vector of size m
         prediction_t = T.argmax(probability_t, axis=1)
@@ -172,17 +208,19 @@ class LogisticRegression(object):
 ##
 # Train the Encoder-Decoder with the training set and output the first 100 learned features.
 ##
-LR = LogisticRegression(train_X, train_Y)
-LR.train(n_epochs=50, mini_batch_size=2, learning_rate=0.1)
+NN = NeuralNetwork(train_X, train_Y, 625)
+NN.train(n_epochs=5, mini_batch_size=20, learning_rate=0.1)
 
 
-[w, b] = LR.get_weights()
+[w_h, b_h, w_o, b_o] = NN.get_weights()
 print "Learned model:"
-print "W ="; print w.get_value(); print w.get_value().shape
-print "b ="; print b.get_value(); print b.get_value().shape
+print "W_h ="; print w_h.get_value(); print w_h.get_value().shape
+print "b_h ="; print b_h.get_value(); print b_h.get_value().shape
+print "W_o ="; print w_o.get_value(); print w_o.get_value().shape
+print "b_o ="; print b_o.get_value(); print b_o.get_value().shape
 
 
-prediction_function = LR.get_prediction_function()
+prediction_function = NN.get_prediction_function()
 predicted_labels = prediction_function(test_X)[0]  # array of predicted labels for each test examples
 true_labels = np.argmax(test_Y, axis=1)  # array of true labels for each test_examples
 print "true labels ="; print true_labels; print true_labels.shape

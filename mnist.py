@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def load_data(dataset):
     """
     Loads the dataset
@@ -30,6 +31,23 @@ def load_data(dataset):
     #  input is a numpy.ndarray of 2 dimensions (a matrix) where row = 1 example
     #  target is a numpy.ndarray of dimension 1 (vector) that gives the target value for each example.
     return train_set, valid_set, test_set
+
+
+def one_hot(y, t=10):
+    """
+    Convert list of labels to a matrix of probability of size m*t
+     with m = number of examples and t = number of possible targets.
+    Create a matrix representation of y
+    :param y: list of labels of size m
+    :param t: number of different targets
+    :return: a matrix of size m*t
+    """
+    if type(y) == list:
+        y = np.array(y)
+    y = y.flatten()
+    o_h = np.zeros((len(y), t))  # create a matrix of 0's of shape m*10
+    o_h[np.arange(len(y)), y] = 1  # put a 1 at each index of the target
+    return o_h
 
 
 def plot_confusion_matrix(cm, title='Confusion matrix'):
